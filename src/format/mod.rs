@@ -14,3 +14,11 @@
 
 mod frame;
 mod header;
+
+#[derive(Debug, thiserror::Error)]
+pub enum FrameError {
+    #[error("Invalid frame type: {0}")]
+    FrameType(u8),
+    #[error("Invalid byte range: {0}..{1}")]
+    ByteRange(usize, usize),
+}

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::format::FrameError;
+use std::io::Bytes;
 use std::process::id;
 
 enum Frame<'a> {
@@ -25,6 +27,7 @@ enum Frame<'a> {
     },
 }
 
+#[derive(Debug)]
 enum FrameRef {
     Put {
         id: u64,
@@ -53,19 +56,29 @@ impl Frame<'_> {
         buf.extend_from_slice(&crc.to_le_bytes());
         buf
     }
+}
 
+impl FrameRef {
     fn decode(data: &[u8], dimension: u32) -> crate::Result<Self> {
         match data[0] {
-            1 => {
-                todo!()
-            }
-            2 => {
-                let id = u64::from_le_bytes(data[1..9].try_into().unwrap());
-                Ok(Frame::Delete { id })
-            }
-            _ => todo!(),
+            1 => decode_put::<f32>(data, dimension),
+            2 => decode_delete(data),
+            _ => Err(crate::EmveError::InvalidFrame(FrameError::FrameType(
+                data[0],
+            ))),
         }
     }
+}
+
+macro_rules! get_bytes {
+    ($buf:expr, $offset:expr, $t:ty) => {{
+        let end = $offset + std::mem::size_of::<$t>();
+        let value =
+            <$t>::from_le_bytes($buf[$offset..end].try_into().map_err(|_| {
+                crate::EmveError::InvalidFrame(FrameError::ByteRange($offset, end))
+            })?);
+        (value, end)
+    }};
 }
 
 fn encode_put(id: u64, vector: &[f32], payload: &[u8]) -> Vec<u8> {
@@ -91,10 +104,87 @@ fn encode_put(id: u64, vector: &[f32], payload: &[u8]) -> Vec<u8> {
     buf.extend(payload);
     buf
 }
+
+fn decode_put<V>(data: &[u8], dimension: u32) -> Result<FrameRef, crate::EmveError> {
+    eprintln!("!!!!!!!!!!!! Decode put frame");
+    let (id, offset) = get_bytes!(data, 2, u64);
+    let (payload_len, offset) = get_bytes!(data, offset, u32);
+
+    let vector_len = dimension as usize * size_of::<V>();
+    let payload_offset = offset + vector_len;
+
+    let vector_range = (offset as u64)..(offset as u64 + vector_len as u64);
+    let payload_range = (payload_offset as u64)..(payload_offset as u64 + payload_len as u64);
+    Ok(FrameRef::Put {
+        id,
+        vector_range,
+        payload_range,
+    })
+}
+
 fn encode_delete(id: u64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(1 + 1 + 8);
     buf.push(2);
     buf.push(0);
     buf.extend(id.to_le_bytes());
     buf
+}
+
+fn decode_delete(data: &[u8]) -> Result<FrameRef, crate::EmveError> {
+    let (id, _offset) = get_bytes!(data, 2, u64);
+    Ok(FrameRef::Delete { id })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_roundtrip_put() {
+        let put = Frame::Put {
+            id: 42,
+            vector: &[1.0, 2.0, 3.0],
+            payload: b"hello",
+        };
+        let encoded = put.encode();
+        let decoded = FrameRef::decode(&encoded[4..encoded.len() - 4], 3).unwrap();
+        match decoded {
+            FrameRef::Put {
+                id,
+                vector_range,
+                payload_range,
+            } => {
+                assert_eq!(id, 42);
+                assert_eq!(vector_range, 14..26); // 3 floats * 4 bytes each
+                assert_eq!(payload_range, 26..31); // "hello" is 5 bytes
+            }
+            _ => panic!("Expected Put frame"),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_delete() {
+        let delete = Frame::Delete { id: 42 };
+        let encoded = delete.encode();
+        let decoded = FrameRef::decode(&encoded[4..encoded.len() - 4], 0).unwrap();
+        match decoded {
+            FrameRef::Delete { id } => {
+                assert_eq!(id, 42);
+            }
+            _ => panic!("Expected Delete frame"),
+        }
+    }
+
+    #[test]
+    fn test_detect_invalid_crc_put() {
+        let put = Frame::Put {
+            id: 42,
+            vector: &[1.0, 2.0, 3.0],
+            payload: b"hello",
+        };
+        let mut encoded = put.encode();
+        let last_bytes = encoded.last_mut().unwrap();
+        *last_bytes ^= 0b00000100; // flip bit
+        FrameRef::decode(&encoded, 3).unwrap();
+    }
 }

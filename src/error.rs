@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::format::FrameError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -20,6 +21,8 @@ pub enum EmveError {
     Io(#[from] std::io::Error),
     #[error("Frame corrupted")]
     Corrupt,
+    #[error("Invalid frame: {0}")]
+    InvalidFrame(FrameError),
     #[error("Invalid header")]
     InvalidHeader,
     #[error("Unsupported version")]

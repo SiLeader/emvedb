@@ -20,6 +20,8 @@ pub enum EmveError {
     Io(#[from] std::io::Error),
     #[error("Frame corrupted")]
     Corrupt,
+    #[error("Invalid header")]
+    InvalidHeader,
     #[error("Unsupported version")]
     UnsupportedVersion,
     #[error("Invalid magic")]

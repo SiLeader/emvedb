@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod db;
-mod error;
-mod format;
-mod index;
-mod metric;
-mod options;
-mod search;
-mod storage;
+mod file;
+mod lock;
+mod memory;

@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod db;
-mod error;
-mod format;
-mod index;
-mod metric;
-mod options;
-mod search;
-mod storage;
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum OpenMode {
+    ReadOnly,
+    ReadWrite,
+}
+
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash)]
+pub enum SyncMode {
+    Always,
+    #[default]
+    OnFlush,
+    Never,
+}

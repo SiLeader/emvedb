@@ -12,11 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod db;
-mod error;
-mod format;
-mod index;
-mod metric;
-mod options;
-mod search;
-mod storage;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Metric {
+    Cosine,
+    L2,
+    Dot,
+}
+
+impl Metric {
+    pub fn from_u8(v: u8) -> Option<Metric> {
+        match v {
+            0 => Some(Metric::Cosine),
+            1 => Some(Metric::L2),
+            2 => Some(Metric::Dot),
+            _ => None,
+        }
+    }
+
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Metric::Cosine => 0,
+            Metric::L2 => 1,
+            Metric::Dot => 2,
+        }
+    }
+}
+
+fn dot(a: &[f32], b: &[f32]) -> f32 {
+    todo!()
+}
+
+fn l2_sq(a: &[f32], b: &[f32]) -> f32 {
+    todo!()
+}

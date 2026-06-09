@@ -37,3 +37,5 @@ pub enum EmveError {
     #[error("Read only")]
     ReadOnly,
 }
+
+pub type Result<T> = std::result::Result<T, EmveError>;

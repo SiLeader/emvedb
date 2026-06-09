@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::Metric;
+
+pub const DEFAULT_MAX_PAYLOAD_LEN: usize = 16 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum OpenMode {
     ReadOnly,
@@ -24,4 +28,40 @@ pub enum SyncMode {
     #[default]
     OnFlush,
     Never,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CreateOptions {
+    pub dimension: u32,
+    pub metric: Metric,
+    pub sync: SyncMode,
+    pub max_payload_len: usize,
+}
+
+impl Default for CreateOptions {
+    fn default() -> Self {
+        Self {
+            dimension: 0,
+            metric: Metric::Cosine,
+            sync: SyncMode::default(),
+            max_payload_len: DEFAULT_MAX_PAYLOAD_LEN,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OpenOptions {
+    pub mode: OpenMode,
+    pub lock_wait: bool,
+    pub sync: SyncMode,
+}
+
+impl Default for OpenOptions {
+    fn default() -> Self {
+        Self {
+            mode: OpenMode::ReadWrite,
+            lock_wait: false,
+            sync: SyncMode::default(),
+        }
+    }
 }

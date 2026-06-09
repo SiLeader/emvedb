@@ -20,7 +20,7 @@ pub enum Metric {
 }
 
 impl Metric {
-    pub fn from_u8(v: u8) -> Option<Metric> {
+    pub const fn from_u8(v: u8) -> Option<Metric> {
         match v {
             0 => Some(Metric::Cosine),
             1 => Some(Metric::L2),
@@ -29,19 +29,11 @@ impl Metric {
         }
     }
 
-    pub fn to_u8(self) -> u8 {
+    pub const fn to_u8(self) -> u8 {
         match self {
             Metric::Cosine => 0,
             Metric::L2 => 1,
             Metric::Dot => 2,
         }
     }
-}
-
-fn dot(a: &[f32], b: &[f32]) -> f32 {
-    todo!()
-}
-
-fn l2_sq(a: &[f32], b: &[f32]) -> f32 {
-    todo!()
 }

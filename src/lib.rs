@@ -1,3 +1,9 @@
+//! Embedded, single-file vector database.
+//!
+//! EmveDB stores fixed-dimension `f32` vectors and opaque payload bytes in an
+//! append-only file. The public API is built around [`Db`], [`Metric`],
+//! [`CreateOptions`], and [`OpenOptions`].
+
 // Copyright 2026- SiLeader (Cerussite).
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,3 +26,8 @@ mod metric;
 mod options;
 mod search;
 mod storage;
+
+pub use crate::db::Db;
+pub use crate::error::{EmveError, Result};
+pub use crate::metric::Metric;
+pub use crate::options::{CreateOptions, OpenMode, OpenOptions, SyncMode};

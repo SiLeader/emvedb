@@ -15,6 +15,9 @@
 mod frame;
 mod header;
 
+pub use frame::*;
+pub use header::*;
+
 #[derive(Debug, thiserror::Error)]
 pub enum FrameError {
     #[error("Invalid frame type: {0}")]
@@ -23,4 +26,14 @@ pub enum FrameError {
     ByteRange(usize, usize),
     #[error("CRC mismatch: expected {expected:x}, actual {actual:x}")]
     CrcMismatch { expected: u32, actual: u32 },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum HeaderError {
+    #[error("Invalid header length: {0}")]
+    LengthTooShort(usize),
+    #[error("Invalid metric: {0}")]
+    Metric(u8),
+    #[error("Invalid element type: {0}")]
+    ElementType(u8),
 }

@@ -19,6 +19,7 @@
 // limitations under the License.
 
 mod db;
+pub mod element_type;
 mod error;
 mod format;
 mod index;

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::format::FrameError;
+use crate::format::{FrameError, HeaderError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -23,8 +23,8 @@ pub enum EmveError {
     Corrupt,
     #[error("Invalid frame: {0}")]
     InvalidFrame(FrameError),
-    #[error("Invalid header")]
-    InvalidHeader,
+    #[error("Invalid header: {0}")]
+    InvalidHeader(HeaderError),
     #[error("Unsupported version")]
     UnsupportedVersion,
     #[error("Invalid magic")]
@@ -41,6 +41,8 @@ pub enum EmveError {
     AlreadyExists,
     #[error("Read only")]
     ReadOnly,
+    #[error("Internal mutex")]
+    InternalLock,
 }
 
 pub type Result<T> = std::result::Result<T, EmveError>;

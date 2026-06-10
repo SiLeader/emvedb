@@ -13,18 +13,20 @@
 // limitations under the License.
 
 use crate::Metric;
+use crate::element_type::ElementType;
+use crate::format::HeaderError;
 
 const MAGIC: [u8; 8] = *b"EMVEDB\0\0";
 const HEADER_SIZE: usize = 64;
 const FORMAT_VERSION: u16 = 1;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Header {
     format_version: u16,
     generation: u32,
     metric: Metric,
-    element_type: u8,
-    dimension: u32,
+    element_type: ElementType,
+    pub(crate) dimension: u32,
     flags: u32,
 }
 
@@ -44,14 +46,25 @@ macro_rules! get_bytes {
 }
 
 impl Header {
-    fn encode(&self) -> [u8; HEADER_SIZE] {
+    pub fn initial(metric: Metric, element_type: ElementType, dimension: u32) -> Self {
+        Self {
+            format_version: FORMAT_VERSION,
+            generation: 0,
+            metric,
+            element_type,
+            dimension,
+            flags: 0,
+        }
+    }
+
+    pub fn encode(&self) -> [u8; HEADER_SIZE] {
         let mut buf = [0u8; HEADER_SIZE];
         let mut offset = 0usize;
         offset = put_bytes!(buf, offset, &MAGIC);
         offset = put_bytes!(buf, offset, &self.format_version.to_le_bytes());
         offset = put_bytes!(buf, offset, &self.generation.to_le_bytes());
         offset = put_bytes!(buf, offset, &[self.metric.to_u8()]);
-        offset = put_bytes!(buf, offset, &[self.element_type]);
+        offset = put_bytes!(buf, offset, &[self.element_type.to_u8()]);
         offset = put_bytes!(buf, offset, &self.dimension.to_le_bytes());
         offset = put_bytes!(buf, offset, &self.flags.to_le_bytes());
         let crc32c = crc32c::crc32c(&buf[..offset]);
@@ -63,9 +76,11 @@ impl Header {
         buf
     }
 
-    fn decode(data: &[u8]) -> crate::Result<Self> {
+    pub fn decode(data: &[u8]) -> crate::Result<Self> {
         if data.len() < HEADER_SIZE {
-            return Err(crate::EmveError::InvalidHeader);
+            return Err(crate::EmveError::InvalidHeader(
+                HeaderError::LengthTooShort(data.len()),
+            ));
         }
 
         let (format_version, offset) = get_bytes!(data, MAGIC.len(), u16);
@@ -83,7 +98,11 @@ impl Header {
         if format_version != FORMAT_VERSION {
             return Err(crate::EmveError::UnsupportedVersion);
         }
-        let metric = Metric::from_u8(metric).ok_or(crate::EmveError::InvalidHeader)?;
+        let metric = Metric::from_u8(metric)
+            .ok_or_else(|| crate::EmveError::InvalidHeader(HeaderError::Metric(metric)))?;
+        let element_type = ElementType::from_u8(element_type).ok_or_else(|| {
+            crate::EmveError::InvalidHeader(HeaderError::ElementType(element_type))
+        })?;
         Ok(Self {
             format_version,
             generation,
@@ -112,7 +131,7 @@ mod tests {
             format_version: FORMAT_VERSION,
             generation: 42,
             metric: Metric::L2,
-            element_type: 0,
+            element_type: ElementType::F32,
             dimension: 128,
             flags: 0,
         };

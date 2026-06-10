@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::format::FrameError;
+use crate::with_debug_log;
 use std::io::Cursor;
 
 pub(crate) enum Frame<'a> {
@@ -49,11 +50,10 @@ impl Frame<'_> {
             Frame::Delete { id } => encode_delete(*id),
         };
         let mut buf = Vec::with_capacity(13 + body.len());
-        buf.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        buf.extend_from_slice(&((body.len() + 4) as u32).to_le_bytes());
 
         let crc = crc32c::crc32c(&body);
         buf.extend(body);
-        eprintln!("crc: {:?}", crc);
         buf.extend_from_slice(&crc.to_le_bytes());
         buf
     }
@@ -84,29 +84,42 @@ impl FrameRef {
         Self::decode(&mut cursor, dimension)
     }
 
+    pub(crate) fn decode_bytes_with_length(
+        data: &[u8],
+        dimension: u32,
+        body_len: usize,
+    ) -> crate::Result<Self> {
+        let mut cursor = Cursor::new(data);
+        Self::decode_with_length(&mut cursor, dimension, body_len)
+    }
+
     pub(crate) fn decode_with_length(
         data: &mut impl std::io::Read,
         dimension: u32,
         body_len: usize,
     ) -> crate::Result<Self> {
-        let mut body_data = Vec::with_capacity(body_len);
-        body_data.resize(body_len, 0);
+        let mut body_data = Vec::with_capacity(body_len - 4);
+        body_data.resize(body_len - 4, 0);
         data.read_exact(&mut body_data)?;
 
         let crc = read_bytes!(data, u32);
         let actual_crc = crc32c::crc32c(&body_data);
         if crc != actual_crc {
-            return Err(crate::EmveError::InvalidFrame(FrameError::CrcMismatch {
-                expected: crc,
-                actual: actual_crc,
-            }));
+            return with_debug_log! {
+                Err(crate::EmveError::InvalidFrame(FrameError::CrcMismatch {
+                    expected: crc,
+                    actual: actual_crc,
+                }))
+            };
         }
         match body_data[0] {
             1 => decode_put::<f32>(&body_data, dimension),
             2 => decode_delete(&body_data),
-            _ => Err(crate::EmveError::InvalidFrame(FrameError::FrameType(
-                body_data[0],
-            ))),
+            _ => with_debug_log! {
+                Err(crate::EmveError::InvalidFrame(FrameError::FrameType(
+                    body_data[0],
+                )))
+            },
         }
     }
 
@@ -141,7 +154,6 @@ fn encode_put(id: u64, vector: &[f32], payload: &[u8]) -> Vec<u8> {
 }
 
 fn decode_put<V>(data: &[u8], dimension: u32) -> Result<FrameRef, crate::EmveError> {
-    eprintln!("!!!!!!!!!!!! Decode put frame");
     let (id, offset) = get_bytes!(data, 2, u64);
     let (payload_len, offset) = get_bytes!(data, offset, u32);
 
@@ -201,7 +213,6 @@ mod tests {
     fn test_roundtrip_delete() {
         let delete = Frame::Delete { id: 42 };
         let encoded = delete.encode();
-        eprintln!("encoded: {:?}", encoded);
         let decoded = FrameRef::decode_bytes(&encoded, 0).unwrap();
         match decoded {
             FrameRef::Delete { id } => {

@@ -14,6 +14,7 @@
 
 use crate::format::{FrameError, HeaderError};
 use thiserror::Error;
+use tracing::Level;
 
 #[derive(Debug, Error)]
 pub enum EmveError {
@@ -46,3 +47,10 @@ pub enum EmveError {
 }
 
 pub type Result<T> = std::result::Result<T, EmveError>;
+
+#[macro_export]
+macro_rules! with_debug_log {
+    ($ex:expr) => {
+        $ex.inspect_err(|e| tracing::debug!("error at line {}: {:?}", line!(), e))
+    };
+}

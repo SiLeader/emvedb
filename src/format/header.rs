@@ -17,7 +17,7 @@ use crate::element_type::ElementType;
 use crate::format::HeaderError;
 
 const MAGIC: [u8; 8] = *b"EMVEDB\0\0";
-const HEADER_SIZE: usize = 64;
+pub(crate) const HEADER_SIZE: usize = 64;
 const FORMAT_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::format::Header;
 use crate::storage::Storage;
 
 pub struct MemoryStorage {
@@ -21,6 +22,21 @@ pub struct MemoryStorage {
 impl MemoryStorage {
     pub fn new(data: Vec<u8>) -> Self {
         Self { data }
+    }
+
+    pub fn new_empty(header: Header) -> Self {
+        let header_bytes = header.encode();
+        Self {
+            data: header_bytes.to_vec(),
+        }
+    }
+
+    pub fn get_data(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn into_vec(self) -> Vec<u8> {
+        self.data
     }
 }
 

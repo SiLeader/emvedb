@@ -14,12 +14,12 @@
 
 use crate::format::Header;
 
-mod file;
+pub(crate) mod file;
 mod lock;
-mod memory;
-mod storage;
+pub(crate) mod memory;
+pub(crate) mod storage;
 
-trait Storage {
+pub(crate) trait Storage {
     fn append(&mut self, bytes: &[u8]) -> crate::Result<u64>;
     fn read_at(&self, offset: u64, len: usize) -> crate::Result<Vec<u8>>;
     fn len(&self) -> crate::Result<u64>;

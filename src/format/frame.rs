@@ -98,6 +98,9 @@ impl FrameRef {
         dimension: u32,
         body_len: usize,
     ) -> crate::Result<Self> {
+        if body_len < 4 {
+            return Err(crate::EmveError::Corrupt);
+        }
         let mut body_data = Vec::with_capacity(body_len - 4);
         body_data.resize(body_len - 4, 0);
         data.read_exact(&mut body_data)?;
@@ -112,12 +115,15 @@ impl FrameRef {
                 }))
             };
         }
-        match body_data[0] {
+        let Some(frame_type) = body_data.first().copied() else {
+            return Err(crate::EmveError::Corrupt);
+        };
+        match frame_type {
             1 => decode_put::<f32>(&body_data, dimension),
             2 => decode_delete(&body_data),
             _ => with_debug_log! {
                 Err(crate::EmveError::InvalidFrame(FrameError::FrameType(
-                    body_data[0],
+                    frame_type,
                 )))
             },
         }

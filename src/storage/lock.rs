@@ -13,73 +13,48 @@
 // limitations under the License.
 
 use std::fs::{File, TryLockError};
-use std::ops::{Deref, DerefMut};
+use std::path::Path;
 
-pub(super) trait FileLock {
-    fn lock_file(&'_ mut self) -> crate::Result<FileLockGuard<'_>>;
-    fn try_lock_file(&'_ mut self) -> crate::Result<FileLockGuard<'_>>;
-
-    fn lock_file_shared(&'_ mut self) -> crate::Result<FileLockGuard<'_>>;
-    fn try_lock_file_shared(&'_ mut self) -> crate::Result<FileLockGuard<'_>>;
+pub(super) struct HeldFileLock {
+    file: File,
 }
 
-pub(super) struct FileLockGuard<'a> {
-    file: &'a mut File,
-}
-
-impl FileLock for File {
-    fn lock_file(&'_ mut self) -> crate::Result<FileLockGuard<'_>> {
-        self.lock()?;
-        Ok(FileLockGuard { file: self })
+impl HeldFileLock {
+    pub(super) fn exclusive(path: impl AsRef<Path>, wait: bool) -> crate::Result<Self> {
+        let file = File::options().read(true).write(true).open(path)?;
+        Self::lock(file, wait, false)
     }
 
-    fn try_lock_file(&'_ mut self) -> crate::Result<FileLockGuard<'_>> {
-        match self.try_lock() {
-            Ok(_) => Ok(FileLockGuard { file: self }),
-            Err(e) => match e {
-                TryLockError::Error(e) => Err(crate::EmveError::Io(e)),
-                TryLockError::WouldBlock => Err(crate::EmveError::Locked),
-            },
+    pub(super) fn shared(path: impl AsRef<Path>, wait: bool) -> crate::Result<Self> {
+        let file = File::options().read(true).open(path)?;
+        Self::lock(file, wait, true)
+    }
+
+    fn lock(file: File, wait: bool, shared: bool) -> crate::Result<Self> {
+        if wait {
+            if shared {
+                file.lock_shared()?;
+            } else {
+                file.lock()?;
+            }
+        } else {
+            let result = if shared {
+                file.try_lock_shared()
+            } else {
+                file.try_lock()
+            };
+            match result {
+                Ok(()) => {}
+                Err(TryLockError::WouldBlock) => return Err(crate::EmveError::Locked),
+                Err(TryLockError::Error(e)) => return Err(crate::EmveError::Io(e)),
+            }
         }
-    }
-
-    fn lock_file_shared(&'_ mut self) -> crate::Result<FileLockGuard<'_>> {
-        self.lock_shared()?;
-        Ok(FileLockGuard { file: self })
-    }
-
-    fn try_lock_file_shared(&'_ mut self) -> crate::Result<FileLockGuard<'_>> {
-        match self.try_lock_shared() {
-            Ok(_) => Ok(FileLockGuard { file: self }),
-            Err(e) => match e {
-                TryLockError::Error(e) => Err(crate::EmveError::Io(e)),
-                TryLockError::WouldBlock => Err(crate::EmveError::Locked),
-            },
-        }
+        Ok(Self { file })
     }
 }
 
-impl<'a> Deref for FileLockGuard<'a> {
-    type Target = File;
-    fn deref(&self) -> &Self::Target {
-        self.file
-    }
-}
-
-impl<'a> AsRef<File> for FileLockGuard<'a> {
-    fn as_ref(&self) -> &File {
-        self.file
-    }
-}
-
-impl<'a> DerefMut for FileLockGuard<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.file
-    }
-}
-
-impl Drop for FileLockGuard<'_> {
+impl Drop for HeldFileLock {
     fn drop(&mut self) {
-        self.file.unlock().unwrap();
+        let _ = self.file.unlock();
     }
 }

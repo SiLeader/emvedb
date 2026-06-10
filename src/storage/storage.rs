@@ -73,6 +73,9 @@ where
                 .storage
                 .len()
         }?;
+        if offset >= storage_len {
+            return Ok(frames);
+        }
         loop {
             let (range, frame) = with_debug_log! { self.read_frame(offset) }?;
             frames.push(frame);

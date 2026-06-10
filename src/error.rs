@@ -14,7 +14,6 @@
 
 use crate::format::{FrameError, HeaderError};
 use thiserror::Error;
-use tracing::Level;
 
 #[derive(Debug, Error)]
 pub enum EmveError {

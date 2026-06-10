@@ -13,34 +13,37 @@
 // limitations under the License.
 
 use crate::element_type::ElementType;
-use crate::format::{FrameRef, Header};
+use crate::format::{FrameRef, HEADER_SIZE, Header};
 use crate::storage::Storage;
-use crate::storage::lock::FileLock;
+use crate::storage::lock::HeldFileLock;
 use crate::{EmveError, Metric, with_debug_log};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem::replace;
-use std::ops::DerefMut;
 use std::sync::{Mutex, MutexGuard};
 
-struct FileStorage {
+pub(crate) struct FileStorage {
     file_path: String,
     file: Mutex<File>,
+    _lock: HeldFileLock,
 }
 
 impl FileStorage {
-    pub fn open_readonly(path: &str) -> crate::Result<Self> {
+    pub fn open_readonly(path: &str, lock_wait: bool) -> crate::Result<Self> {
+        let lock = HeldFileLock::shared(path, lock_wait)?;
         let file = File::options().read(true).open(path)?;
         let this = Self {
             file_path: path.to_string(),
             file: Mutex::new(file),
+            _lock: lock,
         };
         with_debug_log! { this.validate(false) }?;
 
         Ok(this)
     }
 
-    pub fn open_readwrite(path: &str) -> crate::Result<Self> {
+    pub fn open_readwrite(path: &str, lock_wait: bool) -> crate::Result<Self> {
+        let lock = HeldFileLock::exclusive(path, lock_wait)?;
         let file = File::options()
             .read(true)
             .write(true)
@@ -49,6 +52,7 @@ impl FileStorage {
         let this = Self {
             file_path: path.to_string(),
             file: Mutex::new(file),
+            _lock: lock,
         };
         with_debug_log! { this.validate(true) }?;
         Ok(this)
@@ -66,11 +70,13 @@ impl FileStorage {
             .append(true)
             .read(true)
             .open(path)?;
+        let lock = HeldFileLock::exclusive(path, false)?;
         let header = Header::initial(metric, element_type, dimension);
 
         let mut this = Self {
             file_path: path.to_string(),
             file: Mutex::new(file),
+            _lock: lock,
         };
         this.write_header(&header)?;
         Ok(this)
@@ -82,14 +88,13 @@ impl FileStorage {
 
     fn validate(&self, truncate: bool) -> crate::Result<()> {
         let mut file = self.get_file()?;
-        let mut file_locked = with_debug_log! { file.try_lock_file() }?;
-        file_locked.seek(SeekFrom::Start(0))?;
-        if let Err(e) = validate(file_locked.deref_mut()) {
+        file.seek(SeekFrom::Start(0))?;
+        if let Err(e) = validate(&mut *file) {
             match e {
                 ValidateFail::Error(e) => Err(e),
                 ValidateFail::TruncateRequired(len) => {
                     if truncate {
-                        with_debug_log! { file_locked.set_len(len) }?;
+                        with_debug_log! { file.set_len(len) }?;
                     }
                     Ok(())
                 }
@@ -103,53 +108,47 @@ impl FileStorage {
 impl Storage for FileStorage {
     fn append(&mut self, bytes: &[u8]) -> crate::Result<u64> {
         let mut file = self.get_file()?;
-        let mut file_locked = with_debug_log! { file.try_lock_file() }?;
 
-        let offset = with_debug_log! { file_locked.seek(SeekFrom::End(0)) }?;
-        with_debug_log! { file_locked.write_all(bytes) }?;
+        let offset = with_debug_log! { file.seek(SeekFrom::End(0)) }?;
+        with_debug_log! { file.write_all(bytes) }?;
         Ok(offset)
     }
 
     fn read_at(&self, offset: u64, len: usize) -> crate::Result<Vec<u8>> {
         let mut file = self.get_file()?;
-        let mut file_locked = with_debug_log! { file.try_lock_file_shared() }?;
 
-        with_debug_log! { file_locked.seek(SeekFrom::Start(offset)) }?;
+        with_debug_log! { file.seek(SeekFrom::Start(offset)) }?;
         let mut buf = vec![0u8; len];
-        with_debug_log! { file_locked.read_exact(&mut buf) }?;
+        with_debug_log! { file.read_exact(&mut buf) }?;
         Ok(buf)
     }
 
     fn len(&self) -> crate::Result<u64> {
         let mut file = self.get_file()?;
-        let mut file_locked = with_debug_log! { file.try_lock_file_shared() }?;
 
-        let offset = with_debug_log! { file_locked.seek(SeekFrom::End(0)) }?;
+        let offset = with_debug_log! { file.seek(SeekFrom::End(0)) }?;
         Ok(offset)
     }
 
     fn sync(&mut self) -> crate::Result<()> {
-        let mut file = self.get_file()?;
-        let file_locked = with_debug_log! { file.try_lock_file() }?;
+        let file = self.get_file()?;
 
-        with_debug_log! { file_locked.sync_all() }?;
+        with_debug_log! { file.sync_all() }?;
         Ok(())
     }
 
     fn truncate(&mut self, len: u64) -> crate::Result<()> {
-        let mut file = self.get_file()?;
-        let file_locked = with_debug_log! { file.try_lock_file() }?;
+        let file = self.get_file()?;
 
-        with_debug_log! { file_locked.set_len(len) }?;
+        with_debug_log! { file.set_len(len) }?;
         Ok(())
     }
 
     fn write_header(&mut self, header: &Header) -> crate::Result<()> {
         let mut file = self.get_file()?;
-        let mut file_locked = with_debug_log! { file.try_lock_file() }?;
 
-        with_debug_log! { file_locked.seek(SeekFrom::Start(0)) }?;
-        with_debug_log! { file_locked.write_all(&header.encode()) }?;
+        with_debug_log! { file.seek(SeekFrom::Start(0)) }?;
+        with_debug_log! { file.write_all(&header.encode()) }?;
         Ok(())
     }
 
@@ -185,10 +184,17 @@ impl From<std::io::Error> for ValidateFail {
     }
 }
 
-fn validate(source: &mut impl Read) -> Result<(Header, Vec<FrameRef>), ValidateFail> {
+fn validate(source: &mut (impl Read + Seek)) -> Result<(Header, Vec<FrameRef>), ValidateFail> {
+    let file_len = source.seek(SeekFrom::End(0))?;
+    source.seek(SeekFrom::Start(0))?;
+
+    if file_len < HEADER_SIZE as u64 {
+        return Err(ValidateFail::Error(EmveError::Corrupt));
+    }
+
     let mut current_size = 0u64;
     let header = {
-        let mut header_bytes = [0u8; 64];
+        let mut header_bytes = [0u8; HEADER_SIZE];
         source
             .read_exact(&mut header_bytes)
             .inspect_err(|e| tracing::error!("{:?}", e))?;
@@ -197,23 +203,32 @@ fn validate(source: &mut impl Read) -> Result<(Header, Vec<FrameRef>), ValidateF
     };
 
     let mut frames = Vec::new();
-    loop {
+    while current_size < file_len {
+        let frame_start = current_size;
         let Some(length) = read_length_or_none(source, current_size)? else {
             break;
         };
+        current_size += 4;
+
+        if length < 4 {
+            return Err(ValidateFail::Error(EmveError::Corrupt));
+        }
+
+        let frame_end = current_size + length as u64;
+        if frame_end > file_len {
+            return Err(ValidateFail::TruncateRequired(frame_start));
+        }
 
         match FrameRef::decode_with_length(source, header.dimension, length as usize) {
             Ok(frame) => {
-                current_size += 4 + length as u64;
+                current_size = frame_end;
                 frames.push(frame);
             }
             Err(e) => {
-                return match e {
-                    EmveError::Io(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                        Err(ValidateFail::TruncateRequired(current_size))
-                    }
-                    e => with_debug_log! { Err(ValidateFail::Error(e.into())) }?,
-                };
+                if is_truncated_frame_error(&e) || is_crc_error(&e) && frame_end == file_len {
+                    return Err(ValidateFail::TruncateRequired(frame_start));
+                }
+                return Err(ValidateFail::Error(EmveError::Corrupt));
             }
         }
     }
@@ -230,6 +245,7 @@ fn read_length_or_none(
     let mut offset = 0;
     loop {
         let read_len = source.read(&mut length_bytes[offset..])?;
+        offset += read_len;
         if read_len == 0 {
             return if offset == 0 {
                 // EOF
@@ -241,6 +257,168 @@ fn read_length_or_none(
         if offset == length_bytes.len() {
             return Ok(Some(u32::from_le_bytes(length_bytes)));
         }
-        offset += read_len;
+    }
+}
+
+fn is_truncated_frame_error(error: &EmveError) -> bool {
+    matches!(error, EmveError::Io(e) if e.kind() == std::io::ErrorKind::UnexpectedEof)
+}
+
+fn is_crc_error(error: &EmveError) -> bool {
+    matches!(
+        error,
+        EmveError::InvalidFrame(crate::format::FrameError::CrcMismatch { .. })
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::format::Frame;
+    use crate::storage::storage::EmvedbStorage;
+    use std::fs::OpenOptions;
+
+    fn path_string(path: &std::path::Path) -> String {
+        path.to_str().unwrap().to_string()
+    }
+
+    fn put(id: u64) -> Frame<'static> {
+        Frame::Put {
+            id,
+            vector: &[1.0, 2.0, 3.0],
+            payload: b"payload",
+        }
+    }
+
+    #[test]
+    fn create_reopen_and_scan_frames() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = path_string(&dir.path().join("db.evdb"));
+
+        {
+            let file = FileStorage::create_new(&path, Metric::Cosine, ElementType::F32, 3).unwrap();
+            let mut storage = EmvedbStorage::new(file);
+            storage.append_frame(put(1)).unwrap();
+            storage.append_frame(Frame::Delete { id: 2 }).unwrap();
+            storage.append_frame(put(3)).unwrap();
+        }
+
+        let file = FileStorage::open_readwrite(&path, false).unwrap();
+        let storage = EmvedbStorage::new(file);
+        let frames = storage.read_all_frames().unwrap();
+        assert_eq!(frames.len(), 3);
+    }
+
+    #[test]
+    fn empty_file_after_header_scans_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = path_string(&dir.path().join("empty.evdb"));
+
+        let file = FileStorage::create_new(&path, Metric::Cosine, ElementType::F32, 3).unwrap();
+        let storage = EmvedbStorage::new(file);
+
+        assert!(storage.read_all_frames().unwrap().is_empty());
+    }
+
+    #[test]
+    fn open_readwrite_truncates_torn_tail() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = path_string(&dir.path().join("torn.evdb"));
+        let valid_len;
+
+        {
+            let file = FileStorage::create_new(&path, Metric::Cosine, ElementType::F32, 3).unwrap();
+            let mut storage = EmvedbStorage::new(file);
+            storage.append_frame(put(1)).unwrap();
+            valid_len = storage.into_inner().len().unwrap();
+        }
+        {
+            let mut raw = OpenOptions::new().append(true).open(&path).unwrap();
+            let encoded = put(2).encode();
+            raw.write_all(&encoded[..encoded.len() - 3]).unwrap();
+        }
+
+        let file = FileStorage::open_readwrite(&path, false).unwrap();
+        assert_eq!(file.len().unwrap(), valid_len);
+        let storage = EmvedbStorage::new(file);
+        assert_eq!(storage.read_all_frames().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn open_readwrite_truncates_last_crc_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = path_string(&dir.path().join("crc-tail.evdb"));
+        let valid_len;
+
+        {
+            let file = FileStorage::create_new(&path, Metric::Cosine, ElementType::F32, 3).unwrap();
+            let mut storage = EmvedbStorage::new(file);
+            storage.append_frame(put(1)).unwrap();
+            valid_len = storage.into_inner().len().unwrap();
+        }
+        {
+            let mut raw = OpenOptions::new().append(true).open(&path).unwrap();
+            let mut encoded = put(2).encode();
+            *encoded.last_mut().unwrap() ^= 0x01;
+            raw.write_all(&encoded).unwrap();
+        }
+
+        let file = FileStorage::open_readwrite(&path, false).unwrap();
+        assert_eq!(file.len().unwrap(), valid_len);
+        let storage = EmvedbStorage::new(file);
+        assert_eq!(storage.read_all_frames().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn middle_crc_mismatch_is_corrupt() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = path_string(&dir.path().join("middle-crc.evdb"));
+
+        {
+            let file = FileStorage::create_new(&path, Metric::Cosine, ElementType::F32, 3).unwrap();
+            let mut storage = EmvedbStorage::new(file);
+            storage.append_frame(put(1)).unwrap();
+            storage.append_frame(put(2)).unwrap();
+        }
+        {
+            let mut raw = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)
+                .unwrap();
+            raw.seek(SeekFrom::Start(HEADER_SIZE as u64 + 4)).unwrap();
+            raw.write_all(&[0xff]).unwrap();
+        }
+
+        assert!(matches!(
+            FileStorage::open_readwrite(&path, false),
+            Err(EmveError::Corrupt)
+        ));
+    }
+
+    #[test]
+    fn locks_block_conflicting_opens_and_allow_shared_readers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = path_string(&dir.path().join("lock.evdb"));
+
+        let writer = FileStorage::create_new(&path, Metric::Cosine, ElementType::F32, 3).unwrap();
+        assert!(matches!(
+            FileStorage::open_readwrite(&path, false),
+            Err(EmveError::Locked)
+        ));
+        assert!(matches!(
+            FileStorage::open_readonly(&path, false),
+            Err(EmveError::Locked)
+        ));
+        drop(writer);
+
+        let reader = FileStorage::open_readonly(&path, false).unwrap();
+        let second_reader = FileStorage::open_readonly(&path, false).unwrap();
+        assert!(matches!(
+            FileStorage::open_readwrite(&path, false),
+            Err(EmveError::Locked)
+        ));
+        drop(second_reader);
+        drop(reader);
     }
 }

@@ -21,4 +21,6 @@ pub enum FrameError {
     FrameType(u8),
     #[error("Invalid byte range: {0}..{1}")]
     ByteRange(usize, usize),
+    #[error("CRC mismatch: expected {expected:x}, actual {actual:x}")]
+    CrcMismatch { expected: u32, actual: u32 },
 }

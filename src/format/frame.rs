@@ -51,22 +51,12 @@ impl Frame<'_> {
         };
         let mut buf = Vec::with_capacity(13 + body.len());
         buf.extend_from_slice(&(body.len() as u32).to_le_bytes());
+
+        let crc = crc32c::crc32c(&body);
         buf.extend(body);
-        let crc = crc32c::crc32c(&buf);
+        eprintln!("crc: {:?}", crc);
         buf.extend_from_slice(&crc.to_le_bytes());
         buf
-    }
-}
-
-impl FrameRef {
-    fn decode(data: &[u8], dimension: u32) -> crate::Result<Self> {
-        match data[0] {
-            1 => decode_put::<f32>(data, dimension),
-            2 => decode_delete(data),
-            _ => Err(crate::EmveError::InvalidFrame(FrameError::FrameType(
-                data[0],
-            ))),
-        }
     }
 }
 
@@ -79,6 +69,30 @@ macro_rules! get_bytes {
             })?);
         (value, end)
     }};
+}
+
+impl FrameRef {
+    fn decode(data: &[u8], dimension: u32) -> crate::Result<Self> {
+        let (body_len, offset) = get_bytes!(data, 0, u32);
+        let body_len = body_len as usize;
+        let body_data = &data[offset..(offset + body_len)];
+
+        let (crc, _) = get_bytes!(data, offset + body_len, u32);
+        let actual_crc = crc32c::crc32c(body_data);
+        if crc != actual_crc {
+            return Err(crate::EmveError::InvalidFrame(FrameError::CrcMismatch {
+                expected: crc,
+                actual: actual_crc,
+            }));
+        }
+        match body_data[0] {
+            1 => decode_put::<f32>(body_data, dimension),
+            2 => decode_delete(body_data),
+            _ => Err(crate::EmveError::InvalidFrame(FrameError::FrameType(
+                body_data[0],
+            ))),
+        }
+    }
 }
 
 fn encode_put(id: u64, vector: &[f32], payload: &[u8]) -> Vec<u8> {
@@ -96,8 +110,8 @@ fn encode_put(id: u64, vector: &[f32], payload: &[u8]) -> Vec<u8> {
         // payload
         payload.len(),
     );
-    buf.push(1);
-    buf.push(0);
+    buf.push(1u8);
+    buf.push(0u8);
     buf.extend(id.to_le_bytes());
     buf.extend((payload.len() as u32).to_le_bytes());
     buf.extend(vector.iter().flat_map(|&x| x.to_le_bytes()));
@@ -124,8 +138,8 @@ fn decode_put<V>(data: &[u8], dimension: u32) -> Result<FrameRef, crate::EmveErr
 
 fn encode_delete(id: u64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(1 + 1 + 8);
-    buf.push(2);
-    buf.push(0);
+    buf.push(2u8);
+    buf.push(0u8);
     buf.extend(id.to_le_bytes());
     buf
 }
@@ -147,7 +161,7 @@ mod tests {
             payload: b"hello",
         };
         let encoded = put.encode();
-        let decoded = FrameRef::decode(&encoded[4..encoded.len() - 4], 3).unwrap();
+        let decoded = FrameRef::decode(&encoded, 3).unwrap();
         match decoded {
             FrameRef::Put {
                 id,
@@ -166,7 +180,8 @@ mod tests {
     fn test_roundtrip_delete() {
         let delete = Frame::Delete { id: 42 };
         let encoded = delete.encode();
-        let decoded = FrameRef::decode(&encoded[4..encoded.len() - 4], 0).unwrap();
+        eprintln!("encoded: {:?}", encoded);
+        let decoded = FrameRef::decode(&encoded, 0).unwrap();
         match decoded {
             FrameRef::Delete { id } => {
                 assert_eq!(id, 42);
@@ -185,6 +200,6 @@ mod tests {
         let mut encoded = put.encode();
         let last_bytes = encoded.last_mut().unwrap();
         *last_bytes ^= 0b00000100; // flip bit
-        FrameRef::decode(&encoded, 3).unwrap();
+        FrameRef::decode(&encoded, 3).unwrap_err();
     }
 }

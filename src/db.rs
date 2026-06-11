@@ -93,7 +93,13 @@ impl EmveDb {
 
     pub fn open_or_create(path: &str, options: &CreateOptions) -> Result<Self, EmveError> {
         if std::fs::exists(path)? {
-            Self::open(path, &OpenOptions::default())
+            Self::open(
+                path,
+                &OpenOptions {
+                    sync: options.sync,
+                    ..OpenOptions::default()
+                },
+            )
         } else {
             Self::create(path, options)
         }
@@ -147,13 +153,17 @@ impl EmveDb {
     }
 
     pub fn delete(&mut self, id: u64) -> Result<bool, EmveError> {
-        if !self.index.delete(id) {
+        if self.open_mode == OpenMode::ReadOnly {
+            return Err(EmveError::ReadOnly);
+        }
+        if !self.index.contains(id) {
             return Ok(false);
         }
         self.backend.append_frame(Frame::Delete { id })?;
         if self.sync_mode == SyncMode::Always {
             self.backend.sync()?;
         }
+        self.index.delete(id);
         Ok(true)
     }
 
@@ -199,5 +209,122 @@ impl Drop for EmveDb {
         if self.open_mode == OpenMode::ReadWrite {
             self.backend.sync().unwrap_or_else(|_| ());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Record;
+
+    fn options(dimension: u32) -> CreateOptions {
+        CreateOptions {
+            dimension,
+            ..CreateOptions::default()
+        }
+    }
+
+    #[test]
+    fn memory_put_get_update_delete() {
+        let mut db = EmveDb::create(":memory:", &options(3)).unwrap();
+
+        db.put(1, &[1.0, 2.0, 3.0], b"first").unwrap();
+        let record: Record = db.get(1).unwrap().unwrap();
+        assert_eq!(record.id(), 1);
+        assert_eq!(record.vector(), &[1.0, 2.0, 3.0]);
+        assert_eq!(record.payload(), b"first");
+        assert_eq!(db.len(), 1);
+        assert!(db.contains(1));
+
+        db.put(1, &[4.0, 5.0, 6.0], b"second").unwrap();
+        let record = db.get(1).unwrap().unwrap();
+        assert_eq!(record.vector(), &[4.0, 5.0, 6.0]);
+        assert_eq!(record.payload(), b"second");
+        assert_eq!(db.len(), 1);
+
+        assert!(db.delete(1).unwrap());
+        assert!(!db.delete(1).unwrap());
+        assert!(db.get(1).unwrap().is_none());
+        assert!(db.is_empty());
+    }
+
+    #[test]
+    fn file_reopen_preserves_live_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db.emve");
+        let path = path.to_str().unwrap();
+
+        {
+            let mut db = EmveDb::create(path, &options(2)).unwrap();
+            db.put(1, &[1.0, 0.0], b"one").unwrap();
+            db.put(2, &[0.0, 1.0], b"two").unwrap();
+            db.put(1, &[0.5, 0.5], b"updated").unwrap();
+            assert!(db.delete(2).unwrap());
+            db.flush().unwrap();
+        }
+
+        let db = EmveDb::open(path, &OpenOptions::default()).unwrap();
+        assert_eq!(db.len(), 1);
+        assert!(db.get(2).unwrap().is_none());
+        let record = db.get(1).unwrap().unwrap();
+        assert_eq!(record.vector(), &[0.5, 0.5]);
+        assert_eq!(record.payload(), b"updated");
+    }
+
+    #[test]
+    fn readonly_put_and_delete_return_readonly_and_keep_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db.emve");
+        let path = path.to_str().unwrap();
+
+        {
+            let mut db = EmveDb::create(path, &options(2)).unwrap();
+            db.put(7, &[1.0, 2.0], b"payload").unwrap();
+        }
+
+        let mut db = EmveDb::open(
+            path,
+            &OpenOptions {
+                mode: OpenMode::ReadOnly,
+                ..OpenOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(
+            db.put(8, &[3.0, 4.0], b"new"),
+            Err(EmveError::ReadOnly)
+        ));
+        assert!(matches!(db.delete(7), Err(EmveError::ReadOnly)));
+        let record = db.get(7).unwrap().unwrap();
+        assert_eq!(record.payload(), b"payload");
+        assert_eq!(db.len(), 1);
+    }
+
+    #[test]
+    fn invalid_inputs_return_specific_errors() {
+        let mut db = EmveDb::create(":memory:", &options(2)).unwrap();
+
+        assert!(matches!(
+            db.put(1, &[1.0], b"payload"),
+            Err(EmveError::DimensionMismatch {
+                expected: 2,
+                got: 1
+            })
+        ));
+        assert!(matches!(
+            db.put(1, &[f32::NAN, 1.0], b"payload"),
+            Err(EmveError::InvalidVector)
+        ));
+
+        let small_payload = CreateOptions {
+            max_payload_len: 3,
+            ..options(2)
+        };
+        let mut db = EmveDb::create(":memory:", &small_payload).unwrap();
+        assert!(matches!(
+            db.put(1, &[1.0, 2.0], b"toolong"),
+            Err(EmveError::PayloadTooLarge { max: 3, got: 7 })
+        ));
     }
 }

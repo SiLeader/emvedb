@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Metric;
 use crate::element_type::ElementType;
 use crate::format::HeaderError;
+use crate::{CreateOptions, Metric};
 
 const MAGIC: [u8; 8] = *b"EMVEDB\0\0";
 pub(crate) const HEADER_SIZE: usize = 64;
@@ -24,7 +24,7 @@ const FORMAT_VERSION: u16 = 1;
 pub struct Header {
     format_version: u16,
     generation: u32,
-    metric: Metric,
+    pub(crate) metric: Metric,
     element_type: ElementType,
     pub(crate) dimension: u32,
     flags: u32,
@@ -55,6 +55,10 @@ impl Header {
             dimension,
             flags: 0,
         }
+    }
+
+    pub fn initial_from_options(options: &CreateOptions) -> Self {
+        Self::initial(options.metric, ElementType::F32, options.dimension)
     }
 
     pub fn encode(&self) -> [u8; HEADER_SIZE] {

@@ -66,6 +66,10 @@ impl InMemoryIndex {
         this
     }
 
+    pub fn dimension(&self) -> u32 {
+        self.dimension
+    }
+
     pub fn put(&mut self, id: u64, vector: &[f32], payload_offset: u64, payload_len: u32) {
         assert_eq!(
             vector.len(),

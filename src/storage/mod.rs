@@ -28,3 +28,26 @@ pub(crate) trait Storage {
     fn write_header(&mut self, header: &Header) -> crate::Result<()>;
     fn recreate(&mut self, new_data: &[u8], suffix: &str) -> crate::Result<()>;
 }
+impl Storage for Box<dyn Storage> {
+    fn append(&mut self, bytes: &[u8]) -> crate::Result<u64> {
+        (**self).append(bytes)
+    }
+    fn read_at(&self, offset: u64, len: usize) -> crate::Result<Vec<u8>> {
+        (**self).read_at(offset, len)
+    }
+    fn len(&self) -> crate::Result<u64> {
+        (**self).len()
+    }
+    fn sync(&mut self) -> crate::Result<()> {
+        (**self).sync()
+    }
+    fn truncate(&mut self, len: u64) -> crate::Result<()> {
+        (**self).truncate(len)
+    }
+    fn write_header(&mut self, header: &Header) -> crate::Result<()> {
+        (**self).write_header(header)
+    }
+    fn recreate(&mut self, new_data: &[u8], suffix: &str) -> crate::Result<()> {
+        (**self).recreate(new_data, suffix)
+    }
+}

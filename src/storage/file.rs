@@ -82,6 +82,13 @@ impl FileStorage {
         Ok(this)
     }
 
+    pub fn create_new_from_options(
+        path: &str,
+        options: &crate::CreateOptions,
+    ) -> crate::Result<Self> {
+        Self::create_new(path, options.metric, ElementType::F32, options.dimension)
+    }
+
     fn get_file(&self) -> crate::Result<MutexGuard<'_, File>> {
         with_debug_log! { self.file.lock() }.map_err(|_| EmveError::InternalLock)
     }

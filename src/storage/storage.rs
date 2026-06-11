@@ -19,6 +19,14 @@ where
         self.storage
     }
 
+    pub fn sync(&mut self) -> crate::Result<()> {
+        self.storage.sync()
+    }
+
+    pub fn read_at(&self, offset: u64, length: usize) -> crate::Result<Vec<u8>> {
+        self.storage.read_at(offset, length)
+    }
+
     pub fn write_header(&mut self, header: &Header) -> crate::Result<()> {
         with_debug_log! {
             self.storage

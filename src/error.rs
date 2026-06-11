@@ -29,12 +29,12 @@ pub enum EmveError {
     UnsupportedVersion,
     #[error("Invalid magic")]
     InvalidMagic,
-    #[error("Vector dimension mismatch (expected {0}, got {1})")]
-    DimensionMismatch(usize, usize),
+    #[error("Vector dimension mismatch (expected {expected}, got {got})")]
+    DimensionMismatch { expected: u32, got: u32 },
     #[error("Invalid vector")]
     InvalidVector,
-    #[error("Payload too large (max {0} bytes, got {1} bytes)")]
-    PayloadTooLarge(usize, usize),
+    #[error("Payload too large (max {max} bytes, got {got} bytes)")]
+    PayloadTooLarge { max: usize, got: usize },
     #[error("Locked")]
     Locked,
     #[error("Already exists")]
@@ -43,6 +43,15 @@ pub enum EmveError {
     ReadOnly,
     #[error("Internal mutex")]
     InternalLock,
+    #[error("Dimension out of range: {range:?} (got {got})")]
+    DimensionOutOfRange {
+        range: std::ops::RangeInclusive<u32>,
+        got: u32,
+    },
+    #[error("Cannot open :memory: storage")]
+    CannotOpenMemory,
+    #[error("File not found: {0}")]
+    FileNotFound(String),
 }
 
 pub type Result<T> = std::result::Result<T, EmveError>;

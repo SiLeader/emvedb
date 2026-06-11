@@ -25,10 +25,11 @@ mod format;
 mod index;
 mod metric;
 mod options;
+mod record;
 mod search;
 mod storage;
 
-pub use crate::db::Db;
+pub use crate::db::EmveDb;
 pub use crate::error::{EmveError, Result};
 pub use crate::metric::Metric;
 pub use crate::options::{CreateOptions, OpenMode, OpenOptions, SyncMode};

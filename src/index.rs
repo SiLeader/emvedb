@@ -32,6 +32,7 @@ pub(crate) struct InMemoryIndex {
 
 impl InMemoryIndex {
     pub fn new_empty(dimension: u32) -> Self {
+        assert!(dimension > 0, "dimension must be greater than zero");
         Self {
             dimension,
             mapping: HashMap::new(),
@@ -66,6 +67,11 @@ impl InMemoryIndex {
     }
 
     pub fn put(&mut self, id: u64, vector: &[f32], payload_offset: u64, payload_len: u32) {
+        assert_eq!(
+            vector.len(),
+            self.dimension as usize,
+            "vector length must match index dimension"
+        );
         let free_slot = self.free_slots.pop();
         if let Some(slot) = free_slot {
             let arena_range =
@@ -74,13 +80,18 @@ impl InMemoryIndex {
         } else {
             self.arena.extend_from_slice(vector);
         }
+        let norm_sq = vector.iter().map(|x| x * x).sum::<f32>();
         let prev = self.mapping.insert(
             id,
             Entry {
                 slot: free_slot.unwrap_or(self.live as u32),
                 payload_offset,
                 payload_len,
-                inv_norm: 1.0 / vector.iter().map(|x| x * x).sum::<f32>().sqrt(),
+                inv_norm: if norm_sq == 0.0 {
+                    0.0
+                } else {
+                    1.0 / norm_sq.sqrt()
+                },
             },
         );
         if let Some(prev) = prev {
@@ -151,6 +162,7 @@ mod tests {
         let mut index = InMemoryIndex::new_empty(3);
         index.put(1, &[0.1, 0.2, 0.3], 0, 5);
         index.put(2, &[0.4, 0.5, 0.6], 5, 5);
+        let deleted_slot = index.get_entry(1).unwrap().slot;
         index.delete(1);
 
         assert_eq!(index.len(), 1);
@@ -159,15 +171,34 @@ mod tests {
         let entry = index.get_entry(2).unwrap();
         assert_eq!(entry.payload_offset, 5);
         assert_eq!(entry.payload_len, 5);
+
+        index.put(3, &[0.7, 0.8, 0.9], 10, 5);
+        let entry = index.get_entry(3).unwrap();
+        assert_eq!(entry.slot, deleted_slot);
+        assert_eq!(index.vector_of(entry.slot), &[0.7, 0.8, 0.9]);
     }
 
     #[test]
     fn test_build_from_frames() {
-        let mut index = InMemoryIndex::new_empty(3);
-        index.put(1, &[0.1, 0.2, 0.3], 0, 5);
-        index.put(1, &[0.4, 0.5, 0.6], 5, 5);
-        index.delete(1);
-        index.put(2, &[0.7, 0.8, 0.9], 10, 5);
+        let frames = vec![
+            FrameRef::Put {
+                id: 1,
+                vector: vec![0.1, 0.2, 0.3],
+                payload_range: 0..5,
+            },
+            FrameRef::Put {
+                id: 1,
+                vector: vec![0.4, 0.5, 0.6],
+                payload_range: 5..10,
+            },
+            FrameRef::Delete { id: 1 },
+            FrameRef::Put {
+                id: 2,
+                vector: vec![0.7, 0.8, 0.9],
+                payload_range: 10..15,
+            },
+        ];
+        let index = InMemoryIndex::build_from_frames(3, &frames);
 
         assert_eq!(index.len(), 1);
         assert!(!index.contains(1));
@@ -176,6 +207,21 @@ mod tests {
         assert_eq!(entry.payload_offset, 10);
         assert_eq!(entry.payload_len, 5);
         assert_eq!(index.vector_of(entry.slot), &[0.7, 0.8, 0.9]);
+    }
+
+    #[test]
+    fn test_zero_vector_inv_norm_is_zero() {
+        let mut index = InMemoryIndex::new_empty(3);
+        index.put(1, &[0.0, 0.0, 0.0], 0, 0);
+
+        assert_eq!(index.get_entry(1).unwrap().inv_norm, 0.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "vector length must match index dimension")]
+    fn test_rejects_dimension_mismatch() {
+        let mut index = InMemoryIndex::new_empty(3);
+        index.put(1, &[1.0, 2.0], 0, 0);
     }
 
     #[test]

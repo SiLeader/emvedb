@@ -79,6 +79,22 @@ macro_rules! read_bytes {
 }
 
 impl FrameRef {
+    pub(crate) fn with_body_offset(self, body_offset: u64) -> Self {
+        match self {
+            FrameRef::Put {
+                id,
+                vector,
+                payload_range,
+            } => FrameRef::Put {
+                id,
+                vector,
+                payload_range: (payload_range.start + body_offset)
+                    ..(payload_range.end + body_offset),
+            },
+            FrameRef::Delete { id } => FrameRef::Delete { id },
+        }
+    }
+
     pub(crate) fn decode_bytes(data: &[u8], dimension: u32) -> crate::Result<Self> {
         let mut cursor = Cursor::new(data);
         Self::decode(&mut cursor, dimension)

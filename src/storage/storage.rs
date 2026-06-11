@@ -62,7 +62,10 @@ where
             )
         }?;
 
-        Ok((offset..offset + 4 + length, frame))
+        Ok((
+            offset..offset + 4 + length,
+            frame.with_body_offset(offset + 4),
+        ))
     }
 
     pub fn read_all_frames(&self) -> crate::Result<Vec<FrameRef>> {
@@ -102,13 +105,14 @@ mod tests {
         let header = Header::initial(Metric::Cosine, ElementType::F32, 3);
         let mem = {
             let mut storage = EmvedbStorage::new(MemoryStorage::new_empty(header.clone()));
-            storage
+            let first_offset = storage
                 .append_frame(Frame::Put {
                     id: 1,
                     vector: &[0.1, 0.2, 0.3],
                     payload: &b"abcde"[..],
                 })
                 .unwrap();
+            assert_eq!(first_offset, HEADER_SIZE as u64);
             storage
                 .append_frame(Frame::Put {
                     id: 1,
@@ -131,5 +135,11 @@ mod tests {
 
         assert_eq!(header, actual_header);
         assert_eq!(3, actual_frames.len());
+        match &actual_frames[0] {
+            FrameRef::Put { payload_range, .. } => {
+                assert_eq!(payload_range, &(94..99));
+            }
+            FrameRef::Delete { .. } => panic!("Expected Put frame"),
+        }
     }
 }

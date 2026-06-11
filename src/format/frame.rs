@@ -31,7 +31,7 @@ pub(crate) enum Frame<'a> {
 pub(crate) enum FrameRef {
     Put {
         id: u64,
-        vector_range: std::ops::Range<u64>,
+        vector: Vec<f32>,
         payload_range: std::ops::Range<u64>,
     },
     Delete {
@@ -119,7 +119,7 @@ impl FrameRef {
             return Err(crate::EmveError::Corrupt);
         };
         match frame_type {
-            1 => decode_put::<f32>(&body_data, dimension),
+            1 => decode_put(&body_data, dimension),
             2 => decode_delete(&body_data),
             _ => with_debug_log! {
                 Err(crate::EmveError::InvalidFrame(FrameError::FrameType(
@@ -159,18 +159,26 @@ fn encode_put(id: u64, vector: &[f32], payload: &[u8]) -> Vec<u8> {
     buf
 }
 
-fn decode_put<V>(data: &[u8], dimension: u32) -> Result<FrameRef, crate::EmveError> {
+fn decode_put(data: &[u8], dimension: u32) -> Result<FrameRef, crate::EmveError> {
     let (id, offset) = get_bytes!(data, 2, u64);
     let (payload_len, offset) = get_bytes!(data, offset, u32);
 
-    let vector_len = dimension as usize * size_of::<V>();
+    let vector_len = dimension as usize * size_of::<f32>();
     let payload_offset = offset + vector_len;
 
-    let vector_range = (offset as u64)..(offset as u64 + vector_len as u64);
+    let vector = data
+        .get(offset..offset + vector_len)
+        .ok_or(crate::EmveError::Corrupt)?;
     let payload_range = (payload_offset as u64)..(payload_offset as u64 + payload_len as u64);
     Ok(FrameRef::Put {
         id,
-        vector_range,
+        vector: vector
+            .chunks_exact(size_of::<f32>())
+            .map(|chunk| {
+                let array: [u8; size_of::<f32>()] = chunk.try_into().unwrap();
+                f32::from_le_bytes(array)
+            })
+            .collect(),
         payload_range,
     })
 }
@@ -204,11 +212,11 @@ mod tests {
         match decoded {
             FrameRef::Put {
                 id,
-                vector_range,
+                vector,
                 payload_range,
             } => {
                 assert_eq!(id, 42);
-                assert_eq!(vector_range, 14..26); // 3 floats * 4 bytes each
+                assert_eq!(vector, &[1.0, 2.0, 3.0]); // 3 floats * 4 bytes each
                 assert_eq!(payload_range, 26..31); // "hello" is 5 bytes
             }
             _ => panic!("Expected Put frame"),

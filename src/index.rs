@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::format::FrameRef;
+use crate::metric::compute_inv_norm;
 use std::collections::HashMap;
 
 pub(crate) struct Entry {
@@ -84,18 +85,13 @@ impl InMemoryIndex {
         } else {
             self.arena.extend_from_slice(vector);
         }
-        let norm_sq = vector.iter().map(|x| x * x).sum::<f32>();
         let prev = self.mapping.insert(
             id,
             Entry {
                 slot: free_slot.unwrap_or(self.live as u32),
                 payload_offset,
                 payload_len,
-                inv_norm: if norm_sq == 0.0 {
-                    0.0
-                } else {
-                    1.0 / norm_sq.sqrt()
-                },
+                inv_norm: compute_inv_norm(vector),
             },
         );
         if let Some(prev) = prev {

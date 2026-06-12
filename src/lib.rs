@@ -22,6 +22,7 @@ mod db;
 pub mod element_type;
 mod error;
 mod format;
+mod heap;
 mod index;
 mod metric;
 mod options;

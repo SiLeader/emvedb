@@ -11,3 +11,49 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+use std::cmp::Ordering;
+
+pub struct SearchResultItem {
+    pub id: u64,
+    pub score: f32,
+    // distance: f32,
+}
+
+pub struct SearchOptions {
+    pub(crate) filter: Option<Box<dyn SearchFilter>>,
+    pub(crate) min_score: Option<f32>,
+}
+
+pub trait SearchFilter {
+    fn filter(&self, result: &SearchResultItem) -> bool;
+}
+
+impl<T> SearchFilter for T
+where
+    T: Fn(&SearchResultItem) -> bool,
+{
+    fn filter(&self, result: &SearchResultItem) -> bool {
+        self(result)
+    }
+}
+
+impl Eq for SearchResultItem {}
+
+impl PartialEq for SearchResultItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Ord for SearchResultItem {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.score.total_cmp(&other.score)
+    }
+}
+
+impl PartialOrd for SearchResultItem {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}

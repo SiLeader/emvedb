@@ -13,9 +13,12 @@
 // limitations under the License.
 
 use crate::format::{Frame, FrameRef, Header};
+use crate::heap::BinaryTopKMinHeap;
 use crate::index::InMemoryIndex;
+use crate::metric::{compute_inv_norm, cos_scoring, dot_scoring, l2_scoring};
 use crate::options::DEFAULT_MAX_PAYLOAD_LEN;
 use crate::record::Record;
+use crate::search::{SearchOptions, SearchResultItem};
 use crate::storage::Storage;
 use crate::storage::file::FileStorage;
 use crate::storage::memory::MemoryStorage;
@@ -107,16 +110,24 @@ impl EmveDb {
 }
 
 impl EmveDb {
+    fn check_dimension(&self, vector: &[f32]) -> Result<(), EmveError> {
+        if vector.len() != self.index.dimension() as usize {
+            Err(EmveError::DimensionMismatch {
+                expected: self.index.dimension(),
+                got: vector.len() as u32,
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl EmveDb {
     pub fn put(&mut self, id: u64, vector: &[f32], payload: &[u8]) -> Result<(), EmveError> {
         if self.open_mode == OpenMode::ReadOnly {
             return Err(EmveError::ReadOnly);
         }
-        if vector.len() != self.index.dimension() as usize {
-            return Err(EmveError::DimensionMismatch {
-                expected: self.index.dimension(),
-                got: vector.len() as u32,
-            });
-        }
+        self.check_dimension(vector)?;
         if vector.iter().any(|x| !x.is_finite()) {
             return Err(EmveError::InvalidVector);
         }
@@ -201,6 +212,50 @@ impl EmveDb {
 
     pub fn flush(&mut self) -> Result<(), EmveError> {
         self.backend.sync()
+    }
+}
+
+impl EmveDb {
+    pub fn search(
+        &self,
+        query_vector: &[f32],
+        k: usize,
+        options: &SearchOptions,
+    ) -> crate::Result<Vec<SearchResultItem>> {
+        self.check_dimension(query_vector)?;
+        if k == 0 {
+            return Ok(vec![]);
+        }
+
+        let inv_norm = if self.metric() == Metric::Cosine {
+            Some(compute_inv_norm(query_vector))
+        } else {
+            None
+        };
+
+        let mut heap = BinaryTopKMinHeap::new(k);
+        for (id, entry, vector) in self.index.iter_live() {
+            let score = match self.metric() {
+                Metric::Cosine => {
+                    cos_scoring(query_vector, inv_norm.unwrap(), vector, entry.inv_norm)
+                }
+                Metric::L2 => l2_scoring(query_vector, vector),
+                Metric::Dot => dot_scoring(query_vector, vector),
+            };
+            if let Some(min_score) = options.min_score {
+                if score < min_score {
+                    continue;
+                }
+            }
+            let item = SearchResultItem { id, score };
+            if let Some(filter) = &options.filter {
+                if !filter.filter(&item) {
+                    continue;
+                }
+            }
+            heap.push(item);
+        }
+        Ok(heap.into_vec())
     }
 }
 

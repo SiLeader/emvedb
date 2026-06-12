@@ -163,7 +163,14 @@ impl Storage for FileStorage {
         let mut file = with_debug_log! { self.get_file() }?;
 
         let recreated_file_path = format!("{}.{suffix}", self.file_path);
-        let mut recreate_file = with_debug_log! { File::create_new(&recreated_file_path) }?;
+        let mut recreate_file = with_debug_log! {
+            File::options()
+                .truncate(true)
+                .create_new(true)
+                .write(true)
+                .append(true)
+                .open(&recreated_file_path)
+        }?;
         with_debug_log! { recreate_file.write_all(new_data) }?;
         with_debug_log! { recreate_file.sync_all() }?;
 

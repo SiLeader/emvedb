@@ -19,7 +19,7 @@
 // limitations under the License.
 
 mod db;
-pub mod element_type;
+mod element_type;
 mod error;
 mod format;
 mod heap;
@@ -31,6 +31,7 @@ mod search;
 mod storage;
 
 pub use crate::db::EmveDb;
+pub use crate::element_type::ElementType;
 pub use crate::error::{EmveError, Result};
 pub use crate::metric::Metric;
 pub use crate::options::{CreateOptions, OpenMode, OpenOptions, SyncMode};

@@ -97,6 +97,10 @@ where
         }
         Ok(frames)
     }
+
+    pub fn recreate(&mut self, data: &[u8], suffix: &str) -> crate::Result<()> {
+        self.storage.recreate(data, suffix)
+    }
 }
 
 #[cfg(test)]

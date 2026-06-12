@@ -117,7 +117,7 @@ impl Header {
         })
     }
 
-    fn with_incremented_generation(&self) -> Self {
+    pub(crate) fn with_incremented_generation(&self) -> Self {
         Self {
             generation: self.generation.wrapping_add(1),
             ..*self

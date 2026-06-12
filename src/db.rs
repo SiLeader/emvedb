@@ -218,6 +218,17 @@ impl EmveDb {
 }
 
 impl EmveDb {
+    pub fn compact(&mut self) -> Result<(), EmveError> {
+        if self.open_mode == OpenMode::ReadOnly {
+            return Err(EmveError::ReadOnly);
+        }
+        let next_header = self.header.with_incremented_generation();
+
+        self.backend.recreate(&[], "compact")
+    }
+}
+
+impl EmveDb {
     pub fn search(
         &self,
         query_vector: &[f32],

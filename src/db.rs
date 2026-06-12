@@ -15,7 +15,9 @@
 use crate::format::{Frame, FrameRef, Header};
 use crate::heap::BinaryTopKMinHeap;
 use crate::index::InMemoryIndex;
-use crate::metric::{compute_inv_norm, cos_scoring, dot_scoring, l2_scoring};
+use crate::metric::{
+    compute_inv_norm, cos_score_and_distance, dot_score_and_distance, l2_score_and_distance,
+};
 use crate::options::DEFAULT_MAX_PAYLOAD_LEN;
 use crate::record::Record;
 use crate::search::{SearchOptions, SearchResultItem};
@@ -223,6 +225,9 @@ impl EmveDb {
         options: &SearchOptions,
     ) -> crate::Result<Vec<SearchResultItem>> {
         self.check_dimension(query_vector)?;
+        if query_vector.iter().any(|x| !x.is_finite()) {
+            return Err(EmveError::InvalidVector);
+        }
         if k == 0 {
             return Ok(vec![]);
         }
@@ -235,23 +240,33 @@ impl EmveDb {
 
         let mut heap = BinaryTopKMinHeap::new(k);
         for (id, entry, vector) in self.index.iter_live() {
-            let score = match self.metric() {
+            if let Some(filter) = &options.filter
+                && !filter.filter_id(id)
+            {
+                continue;
+            }
+
+            let (score, distance) = match self.metric() {
                 Metric::Cosine => {
-                    cos_scoring(query_vector, inv_norm.unwrap(), vector, entry.inv_norm)
+                    cos_score_and_distance(query_vector, inv_norm.unwrap(), vector, entry.inv_norm)
                 }
-                Metric::L2 => l2_scoring(query_vector, vector),
-                Metric::Dot => dot_scoring(query_vector, vector),
+                Metric::L2 => l2_score_and_distance(query_vector, vector),
+                Metric::Dot => dot_score_and_distance(query_vector, vector),
             };
             if let Some(min_score) = options.min_score {
                 if score < min_score {
                     continue;
                 }
             }
-            let item = SearchResultItem { id, score };
-            if let Some(filter) = &options.filter {
-                if !filter.filter(&item) {
-                    continue;
-                }
+            let item = SearchResultItem {
+                id,
+                score,
+                distance,
+            };
+            if let Some(filter) = &options.filter
+                && !filter.filter(&item)
+            {
+                continue;
             }
             heap.push(item);
         }
@@ -270,13 +285,32 @@ impl Drop for EmveDb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Record;
+    use crate::{Record, SearchFilter, SearchOptions};
 
     fn options(dimension: u32) -> CreateOptions {
         CreateOptions {
             dimension,
             ..CreateOptions::default()
         }
+    }
+
+    fn options_with_metric(dimension: u32, metric: Metric) -> CreateOptions {
+        CreateOptions {
+            dimension,
+            metric,
+            ..CreateOptions::default()
+        }
+    }
+
+    fn ids(results: &[SearchResultItem]) -> Vec<u64> {
+        results.iter().map(|result| result.id).collect()
+    }
+
+    fn assert_approx_eq(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() <= 1e-6,
+            "expected {expected}, got {actual}"
+        );
     }
 
     #[test]
@@ -380,6 +414,116 @@ mod tests {
         assert!(matches!(
             db.put(1, &[1.0, 2.0], b"toolong"),
             Err(EmveError::PayloadTooLarge { max: 3, got: 7 })
+        ));
+    }
+
+    #[test]
+    fn dot_search_returns_top_k_best_first_and_applies_filters() {
+        let mut db = EmveDb::create(":memory:", &options_with_metric(2, Metric::Dot)).unwrap();
+        db.put(1, &[1.0, 0.0], b"one").unwrap();
+        db.put(2, &[3.0, 0.0], b"two").unwrap();
+        db.put(3, &[2.0, 0.0], b"three").unwrap();
+        db.put(4, &[4.0, 0.0], b"four").unwrap();
+
+        let results = db
+            .search(&[1.0, 0.0], 2, &SearchOptions::default())
+            .unwrap();
+        assert_eq!(ids(&results), vec![4, 2]);
+        assert_eq!(results[0].score, 4.0);
+        assert_eq!(results[0].distance, 4.0);
+
+        let options = SearchOptions::default()
+            .with_filter(|id| id != 4)
+            .with_min_score(2.5);
+        let results = db.search(&[1.0, 0.0], 10, &options).unwrap();
+        assert_eq!(ids(&results), vec![2]);
+    }
+
+    #[test]
+    fn search_filter_can_inspect_scored_result() {
+        struct ScoreAtMost(f32);
+
+        impl SearchFilter for ScoreAtMost {
+            fn filter(&self, result: &SearchResultItem) -> bool {
+                result.score <= self.0
+            }
+        }
+
+        let mut db = EmveDb::create(":memory:", &options_with_metric(2, Metric::Dot)).unwrap();
+        db.put(1, &[1.0, 0.0], b"one").unwrap();
+        db.put(2, &[2.0, 0.0], b"two").unwrap();
+        db.put(3, &[3.0, 0.0], b"three").unwrap();
+
+        let options = SearchOptions::default().with_filter(ScoreAtMost(2.0));
+        let results = db.search(&[1.0, 0.0], 10, &options).unwrap();
+
+        assert_eq!(ids(&results), vec![2, 1]);
+    }
+
+    #[test]
+    fn cosine_search_handles_same_direction_and_zero_norm() {
+        let mut db = EmveDb::create(":memory:", &options_with_metric(2, Metric::Cosine)).unwrap();
+        db.put(2, &[100.0, 0.0], b"same-long").unwrap();
+        db.put(1, &[1.0, 0.0], b"same").unwrap();
+        db.put(3, &[0.0, 1.0], b"orthogonal").unwrap();
+        db.put(4, &[0.0, 0.0], b"zero").unwrap();
+
+        let results = db
+            .search(&[1.0, 0.0], 4, &SearchOptions::default())
+            .unwrap();
+
+        assert_eq!(ids(&results), vec![1, 2, 3, 4]);
+        assert_approx_eq(results[0].score, 1.0);
+        assert_approx_eq(results[1].score, 1.0);
+        assert_approx_eq(results[0].distance, 0.0);
+        assert_approx_eq(results[2].score, 0.0);
+        assert!(results[3].score.is_infinite() && results[3].score.is_sign_negative());
+        assert!(results[3].distance.is_infinite() && results[3].distance.is_sign_positive());
+    }
+
+    #[test]
+    fn l2_search_returns_euclidean_distance_and_handles_boundaries() {
+        let mut db = EmveDb::create(":memory:", &options_with_metric(2, Metric::L2)).unwrap();
+        db.put(1, &[0.0, 0.0], b"origin").unwrap();
+        db.put(2, &[3.0, 4.0], b"far").unwrap();
+        db.put(3, &[1.0, 0.0], b"near").unwrap();
+
+        let empty = db
+            .search(&[0.0, 0.0], 0, &SearchOptions::default())
+            .unwrap();
+        assert!(empty.is_empty());
+
+        let results = db
+            .search(&[0.0, 0.0], 10, &SearchOptions::default())
+            .unwrap();
+        assert_eq!(ids(&results), vec![1, 3, 2]);
+        assert_approx_eq(results[0].distance, 0.0);
+        assert_approx_eq(results[1].distance, 1.0);
+        assert_approx_eq(results[2].distance, 5.0);
+        assert_approx_eq(results[2].score, -5.0);
+    }
+
+    #[test]
+    fn search_validates_query_and_orders_ties_by_id() {
+        let mut db = EmveDb::create(":memory:", &options_with_metric(2, Metric::Dot)).unwrap();
+        db.put(2, &[1.0, 0.0], b"two").unwrap();
+        db.put(1, &[1.0, 0.0], b"one").unwrap();
+
+        let results = db
+            .search(&[1.0, 0.0], 2, &SearchOptions::default())
+            .unwrap();
+        assert_eq!(ids(&results), vec![1, 2]);
+
+        assert!(matches!(
+            db.search(&[1.0], 2, &SearchOptions::default()),
+            Err(EmveError::DimensionMismatch {
+                expected: 2,
+                got: 1
+            })
+        ));
+        assert!(matches!(
+            db.search(&[f32::NAN, 0.0], 2, &SearchOptions::default()),
+            Err(EmveError::InvalidVector)
         ));
     }
 }

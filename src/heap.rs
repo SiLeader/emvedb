@@ -22,7 +22,7 @@ where
         if self.items.len() < self.k {
             self.items.push(item);
         } else if let Some(bottom) = self.items.peek()
-            && item > *bottom
+            && item < *bottom
         {
             self.items.pop();
             self.items.push(item);
@@ -30,6 +30,24 @@ where
     }
 
     pub fn into_vec(self) -> Vec<T> {
-        self.items.into_iter().map(|Reverse(item)| item).collect()
+        let mut items: Vec<T> = self.items.into_iter().map(|Reverse(item)| item).collect();
+        items.sort_by(|a, b| b.cmp(a));
+        items
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BinaryTopKMinHeap;
+
+    #[test]
+    fn keeps_largest_items_in_descending_order() {
+        let mut heap = BinaryTopKMinHeap::new(2);
+
+        heap.push(1);
+        heap.push(10);
+        heap.push(3);
+
+        assert_eq!(heap.into_vec(), vec![10, 3]);
     }
 }

@@ -35,3 +35,4 @@ pub use crate::error::{EmveError, Result};
 pub use crate::metric::Metric;
 pub use crate::options::{CreateOptions, OpenMode, OpenOptions, SyncMode};
 pub use crate::record::Record;
+pub use crate::search::{SearchFilter, SearchOptions, SearchResultItem};

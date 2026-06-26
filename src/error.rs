@@ -52,6 +52,8 @@ pub enum EmveError {
     CannotOpenMemory,
     #[error("File not found: {0}")]
     FileNotFound(String),
+    #[error("Lock error")]
+    LockFailed,
 }
 
 pub type Result<T> = std::result::Result<T, EmveError>;

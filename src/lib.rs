@@ -24,6 +24,7 @@ mod error;
 mod format;
 mod heap;
 mod index;
+mod inner_db;
 mod metric;
 mod options;
 mod record;

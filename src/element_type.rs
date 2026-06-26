@@ -1,5 +1,9 @@
+/// Vector element type stored in a database.
+///
+/// EmveDB currently supports only `f32` vectors.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum ElementType {
+    /// 32-bit floating-point vector elements.
     F32,
 }
 

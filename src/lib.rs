@@ -1,7 +1,7 @@
 //! Embedded, single-file vector database.
 //!
 //! EmveDB stores fixed-dimension `f32` vectors and opaque payload bytes in an
-//! append-only file. The public API is built around [`Db`], [`Metric`],
+//! append-only file. The public API is built around [`EmveDb`], [`Metric`],
 //! [`CreateOptions`], and [`OpenOptions`].
 
 // Copyright 2026- SiLeader (Cerussite).

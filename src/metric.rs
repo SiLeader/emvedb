@@ -12,14 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Distance or similarity metric used by search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Metric {
+    /// Cosine similarity.
+    ///
+    /// Search scores are cosine similarities and distances are `1 - score`.
     Cosine,
+    /// Euclidean distance.
+    ///
+    /// Search scores are negative Euclidean distances so that larger scores are
+    /// better.
     L2,
+    /// Dot product similarity.
+    ///
+    /// Search scores and distances are both the dot product value.
     Dot,
 }
 
 impl Metric {
+    /// Decodes a metric from its storage representation.
     pub const fn from_u8(v: u8) -> Option<Metric> {
         match v {
             0 => Some(Metric::Cosine),
@@ -29,6 +41,7 @@ impl Metric {
         }
     }
 
+    /// Encodes the metric for storage.
     pub const fn to_u8(self) -> u8 {
         match self {
             Metric::Cosine => 0,

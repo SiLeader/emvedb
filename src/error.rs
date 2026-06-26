@@ -15,49 +15,81 @@
 use crate::format::{FrameError, HeaderError};
 use thiserror::Error;
 
+/// Error type returned by EmveDB operations.
 #[derive(Debug, Error)]
 pub enum EmveError {
+    /// Underlying I/O operation failed.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    /// Stored data is truncated, inconsistent, or otherwise corrupt.
     #[error("Frame corrupted")]
     Corrupt,
+    /// A frame in the append-only log is invalid.
     #[error("Invalid frame: {0}")]
     InvalidFrame(FrameError),
+    /// The database header is invalid.
     #[error("Invalid header: {0}")]
     InvalidHeader(HeaderError),
+    /// The database file was written by an unsupported format version.
     #[error("Unsupported version")]
     UnsupportedVersion,
+    /// The database file does not start with the expected magic bytes.
     #[error("Invalid magic")]
     InvalidMagic,
+    /// A vector did not match the database dimension.
     #[error("Vector dimension mismatch (expected {expected}, got {got})")]
-    DimensionMismatch { expected: u32, got: u32 },
-    #[error("Invalid vector")]
-    InvalidVector,
-    #[error("Payload too large (max {max} bytes, got {got} bytes)")]
-    PayloadTooLarge { max: usize, got: usize },
-    #[error("Locked")]
-    Locked,
-    #[error("Already exists")]
-    AlreadyExists,
-    #[error("Read only")]
-    ReadOnly,
-    #[error("Internal mutex")]
-    InternalLock,
-    #[error("Dimension out of range: {range:?} (got {got})")]
-    DimensionOutOfRange {
-        range: std::ops::RangeInclusive<u32>,
+    DimensionMismatch {
+        /// Dimension required by the database.
+        expected: u32,
+        /// Dimension supplied by the caller.
         got: u32,
     },
+    /// A vector contained `NaN`, positive infinity, or negative infinity.
+    #[error("Invalid vector")]
+    InvalidVector,
+    /// A payload exceeded the configured maximum length.
+    #[error("Payload too large (max {max} bytes, got {got} bytes)")]
+    PayloadTooLarge {
+        /// Maximum allowed payload length in bytes.
+        max: usize,
+        /// Payload length supplied by the caller in bytes.
+        got: usize,
+    },
+    /// A file lock could not be acquired immediately.
+    #[error("Locked")]
+    Locked,
+    /// A file-backed database already exists at the requested create path.
+    #[error("Already exists")]
+    AlreadyExists,
+    /// A write operation was attempted through a read-only handle.
+    #[error("Read only")]
+    ReadOnly,
+    /// An internal storage mutex was poisoned.
+    #[error("Internal mutex")]
+    InternalLock,
+    /// The requested database dimension is outside the supported range.
+    #[error("Dimension out of range: {range:?} (got {got})")]
+    DimensionOutOfRange {
+        /// Supported inclusive dimension range.
+        range: std::ops::RangeInclusive<u32>,
+        /// Dimension supplied by the caller.
+        got: u32,
+    },
+    /// Attempted to open `":memory:"` with [`EmveDb::open`](crate::EmveDb::open).
     #[error("Cannot open :memory: storage")]
     CannotOpenMemory,
+    /// The requested database file does not exist.
     #[error("File not found: {0}")]
     FileNotFound(String),
+    /// The database handle lock was poisoned.
     #[error("Lock error")]
     LockFailed,
 }
 
+/// Crate-wide result type.
 pub type Result<T> = std::result::Result<T, EmveError>;
 
+/// Logs an error at debug level while preserving the original result.
 #[macro_export]
 macro_rules! with_debug_log {
     ($ex:expr) => {

@@ -74,6 +74,21 @@ let db = EmveDb::create(
 )?;
 ```
 
+## Examples
+
+This repository includes runnable Cargo examples:
+
+```sh
+cargo run --example basic_search
+cargo run --example filters
+cargo run --example file_persistence
+```
+
+- `basic_search`: creates an in-memory cosine index and prints nearest colors
+- `filters`: combines id filters, result filters, and minimum scores
+- `file_persistence`: writes a file-backed database, compacts it, and reopens it
+  read-only
+
 ## Data Model
 
 Each record contains:

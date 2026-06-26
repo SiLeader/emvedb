@@ -75,6 +75,20 @@ let db = EmveDb::create(
 )?;
 ```
 
+## Examples
+
+このリポジトリには、Cargo から実行できる examples が含まれています。
+
+```sh
+cargo run --example basic_search
+cargo run --example filters
+cargo run --example file_persistence
+```
+
+- `basic_search`: in-memory の cosine index を作成し、近い色を表示します
+- `filters`: id filter、result filter、minimum score の使い方を示します
+- `file_persistence`: file-backed DB に書き込み、compact して read-only で再オープンします
+
 ## データモデル
 
 各レコードは次の要素を持ちます。

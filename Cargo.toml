@@ -2,16 +2,20 @@
 name = "emvedb"
 version = "0.1.0"
 edition = "2024"
+description = "A simple embedded vector database for Rust"
+readme = "README.md"
+license-file = "LICENSE"
+repository = "https://github.com/SiLeader/emvedb"
+keywords = ["embedded", "vectordb", "vector", "database"]
+categories = ["database"]
+include = ["src/", "LICENSE", "README.md"]
 
 [dependencies]
 crc32c = "0.6.8"
-
 thiserror = "2.0.18"
-
 tracing = "0.1.44"
 
 [dev-dependencies]
-criterion = "0.7.0"
 proptest = "1.9.0"
 tempfile = "3.23.0"
 tracing-test = "0.2.6"

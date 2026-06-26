@@ -4,11 +4,20 @@ version = "0.1.0"
 edition = "2024"
 description = "A simple embedded vector database for Rust"
 readme = "README.md"
-license-file = "LICENSE"
+license = "Apache-2.0"
 repository = "https://github.com/SiLeader/emvedb"
 keywords = ["embedded", "vectordb", "vector", "database"]
 categories = ["database"]
-include = ["src/", "LICENSE", "README.md"]
+include = [
+    "src/",
+    "examples/",
+    "tests/",
+    "LICENSE",
+    "README.md",
+    "README_ja.md",
+    "SPEC.md",
+]
+rust-version = "1.85.0"
 
 [dependencies]
 crc32c = "0.6.8"

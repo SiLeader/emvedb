@@ -224,7 +224,26 @@ impl EmveDb {
         }
         let next_header = self.header.with_incremented_generation();
 
-        self.backend.recreate(&[], "compact")
+        let mut data = next_header.encode().to_vec();
+
+        for (id, entry, vector) in self.index.iter_live() {
+            let frame = Frame::Put {
+                id,
+                payload: &self
+                    .backend
+                    .read_at(entry.payload_offset, entry.payload_len as usize)?,
+                vector,
+            };
+            data.extend(frame.encode());
+        }
+
+        self.backend.recreate(&data, "compact")?;
+        self.header = next_header;
+        self.index = InMemoryIndex::build_from_frames(
+            self.header.dimension,
+            &self.backend.read_all_frames()?,
+        );
+        Ok(())
     }
 }
 

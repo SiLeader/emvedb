@@ -2,7 +2,7 @@ use emvedb::{CreateOptions, EmveDb, Metric, SearchOptions, SearchResultItem};
 
 #[test]
 fn search_types_are_usable_from_downstream_crates() {
-    let mut db = EmveDb::create(
+    let db = EmveDb::create(
         ":memory:",
         &CreateOptions {
             dimension: 2,

@@ -142,6 +142,8 @@ impl InMemoryIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn test_repeat_same_id_put() {
@@ -234,5 +236,60 @@ mod tests {
         assert_eq!(index.vector_of(0), &[0.1, 0.2, 0.3]);
         assert_eq!(index.vector_of(1), &[0.4, 0.5, 0.6]);
         assert_eq!(index.vector_of(2), &[0.7, 0.8, 0.9]);
+    }
+
+    proptest! {
+        #[test]
+        fn upsert_delete_preserve_index_invariants(
+            ops in prop::collection::vec((0u64..8, any::<bool>(), -1000i32..1000), 1..200)
+        ) {
+            let mut index = InMemoryIndex::new_empty(2);
+            let mut expected = HashMap::<u64, ([f32; 2], u64, u32)>::new();
+
+            for (id, should_put, seed) in ops {
+                if should_put {
+                    let vector = [id as f32, seed as f32];
+                    let payload_offset = id * 100 + seed.unsigned_abs() as u64;
+                    let payload_len = (seed.unsigned_abs() % 17) + 1;
+                    index.put(id, &vector, payload_offset, payload_len);
+                    expected.insert(id, (vector, payload_offset, payload_len));
+                } else {
+                    prop_assert_eq!(index.delete(id), expected.remove(&id).is_some());
+                }
+
+                assert_index_matches(&index, &expected)?;
+            }
+        }
+    }
+
+    fn assert_index_matches(
+        index: &InMemoryIndex,
+        expected: &HashMap<u64, ([f32; 2], u64, u32)>,
+    ) -> Result<(), TestCaseError> {
+        let total_slots = index.arena.len() / index.dimension as usize;
+        prop_assert_eq!(index.arena.len() % index.dimension as usize, 0);
+        prop_assert_eq!(index.live, expected.len());
+        prop_assert_eq!(index.len(), expected.len());
+        prop_assert_eq!(index.mapping.len(), expected.len());
+        prop_assert_eq!(index.live + index.free_slots.len(), total_slots);
+
+        let mut used_slots = HashSet::new();
+        for (&id, entry) in &index.mapping {
+            let (vector, payload_offset, payload_len) = expected.get(&id).unwrap();
+            prop_assert!(used_slots.insert(entry.slot));
+            prop_assert_eq!(entry.payload_offset, *payload_offset);
+            prop_assert_eq!(entry.payload_len, *payload_len);
+            prop_assert_eq!(index.vector_of(entry.slot), vector);
+            prop_assert!((entry.slot as usize) < total_slots);
+        }
+
+        let mut free_slots = HashSet::new();
+        for &slot in &index.free_slots {
+            prop_assert!(free_slots.insert(slot));
+            prop_assert!(!used_slots.contains(&slot));
+            prop_assert!((slot as usize) < total_slots);
+        }
+
+        Ok(())
     }
 }

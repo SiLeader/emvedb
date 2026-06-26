@@ -70,8 +70,8 @@ impl Header {
         offset = put_bytes!(buf, offset, &[self.metric.to_u8()]);
         offset = put_bytes!(buf, offset, &[self.element_type.to_u8()]);
         offset = put_bytes!(buf, offset, &self.dimension.to_le_bytes());
-        offset = put_bytes!(buf, offset, &self.flags.to_le_bytes());
-        let crc32c = crc32c::crc32c(&buf[..offset]);
+        let _ = put_bytes!(buf, offset, &self.flags.to_le_bytes());
+        let crc32c = crc32c::crc32c(&buf[..HEADER_SIZE - size_of::<u32>()]);
         let _ = put_bytes!(
             buf,
             HEADER_SIZE - size_of_val(&crc32c),
@@ -86,16 +86,19 @@ impl Header {
                 HeaderError::LengthTooShort(data.len()),
             ));
         }
+        if data[..MAGIC.len()] != MAGIC {
+            return Err(crate::EmveError::InvalidMagic);
+        }
 
         let (format_version, offset) = get_bytes!(data, MAGIC.len(), u16);
         let (generation, offset) = get_bytes!(data, offset, u32);
         let (metric, offset) = get_bytes!(data, offset, u8);
         let (element_type, offset) = get_bytes!(data, offset, u8);
         let (dimension, offset) = get_bytes!(data, offset, u32);
-        let (flags, offset) = get_bytes!(data, offset, u32);
+        let (flags, _offset) = get_bytes!(data, offset, u32);
 
         let (crc32c, _) = get_bytes!(data, HEADER_SIZE - size_of::<u32>(), u32);
-        if crc32c::crc32c(&data[..offset]) != crc32c {
+        if crc32c::crc32c(&data[..HEADER_SIZE - size_of::<u32>()]) != crc32c {
             return Err(crate::EmveError::Corrupt);
         }
 
@@ -103,10 +106,10 @@ impl Header {
             return Err(crate::EmveError::UnsupportedVersion);
         }
         let metric = Metric::from_u8(metric)
-            .ok_or_else(|| crate::EmveError::InvalidHeader(HeaderError::Metric(metric)))?;
-        let element_type = ElementType::from_u8(element_type).ok_or_else(|| {
-            crate::EmveError::InvalidHeader(HeaderError::ElementType(element_type))
-        })?;
+            .ok_or(crate::EmveError::InvalidHeader(HeaderError::Metric(metric)))?;
+        let element_type = ElementType::from_u8(element_type).ok_or(
+            crate::EmveError::InvalidHeader(HeaderError::ElementType(element_type)),
+        )?;
         Ok(Self {
             format_version,
             generation,
@@ -142,5 +145,45 @@ mod tests {
         let encoded = header.encode();
         let decoded = Header::decode(&encoded).unwrap();
         assert_eq!(header, decoded);
+    }
+
+    #[test]
+    fn detects_invalid_magic_even_when_crc_matches() {
+        let header = Header::initial(Metric::Cosine, ElementType::F32, 3);
+        let mut encoded = header.encode();
+        encoded[..MAGIC.len()].copy_from_slice(b"NOTEMVE\0");
+        let crc = crc32c::crc32c(&encoded[..HEADER_SIZE - size_of::<u32>()]);
+        encoded[HEADER_SIZE - size_of::<u32>()..].copy_from_slice(&crc.to_le_bytes());
+
+        assert!(matches!(
+            Header::decode(&encoded),
+            Err(crate::EmveError::InvalidMagic)
+        ));
+    }
+
+    #[test]
+    fn detects_corrupted_reserved_bytes() {
+        let header = Header::initial(Metric::Cosine, ElementType::F32, 3);
+        let mut encoded = header.encode();
+        encoded[24] = 1;
+
+        assert!(matches!(
+            Header::decode(&encoded),
+            Err(crate::EmveError::Corrupt)
+        ));
+    }
+
+    #[test]
+    fn rejects_unsupported_version() {
+        let header = Header::initial(Metric::Cosine, ElementType::F32, 3);
+        let mut encoded = header.encode();
+        encoded[8..10].copy_from_slice(&2u16.to_le_bytes());
+        let crc = crc32c::crc32c(&encoded[..HEADER_SIZE - size_of::<u32>()]);
+        encoded[HEADER_SIZE - size_of::<u32>()..].copy_from_slice(&crc.to_le_bytes());
+
+        assert!(matches!(
+            Header::decode(&encoded),
+            Err(crate::EmveError::UnsupportedVersion)
+        ));
     }
 }

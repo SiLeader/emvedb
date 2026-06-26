@@ -20,6 +20,7 @@ pub struct MemoryStorage {
 }
 
 impl MemoryStorage {
+    #[cfg(test)]
     pub fn new(data: Vec<u8>) -> Self {
         Self { data }
     }
@@ -31,10 +32,7 @@ impl MemoryStorage {
         }
     }
 
-    pub fn get_data(&self) -> &[u8] {
-        &self.data
-    }
-
+    #[cfg(test)]
     pub fn into_vec(self) -> Vec<u8> {
         self.data
     }
@@ -60,11 +58,6 @@ impl Storage for MemoryStorage {
     }
 
     fn sync(&mut self) -> crate::Result<()> {
-        Ok(())
-    }
-
-    fn truncate(&mut self, len: u64) -> crate::Result<()> {
-        self.data.truncate(len as usize);
         Ok(())
     }
 

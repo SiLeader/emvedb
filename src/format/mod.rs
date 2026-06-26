@@ -15,8 +15,8 @@
 mod frame;
 mod header;
 
-pub use frame::*;
-pub use header::*;
+pub(crate) use frame::*;
+pub(crate) use header::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FrameError {

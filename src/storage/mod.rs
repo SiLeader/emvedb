@@ -17,6 +17,7 @@ use crate::format::Header;
 pub(crate) mod file;
 mod lock;
 pub(crate) mod memory;
+#[allow(clippy::module_inception)]
 pub(crate) mod storage;
 
 pub(crate) trait Storage {
@@ -24,7 +25,6 @@ pub(crate) trait Storage {
     fn read_at(&self, offset: u64, len: usize) -> crate::Result<Vec<u8>>;
     fn len(&self) -> crate::Result<u64>;
     fn sync(&mut self) -> crate::Result<()>;
-    fn truncate(&mut self, len: u64) -> crate::Result<()>;
     fn write_header(&mut self, header: &Header) -> crate::Result<()>;
     fn recreate(&mut self, new_data: &[u8], suffix: &str) -> crate::Result<()>;
 }
@@ -40,9 +40,6 @@ impl Storage for Box<dyn Storage> {
     }
     fn sync(&mut self) -> crate::Result<()> {
         (**self).sync()
-    }
-    fn truncate(&mut self, len: u64) -> crate::Result<()> {
-        (**self).truncate(len)
     }
     fn write_header(&mut self, header: &Header) -> crate::Result<()> {
         (**self).write_header(header)

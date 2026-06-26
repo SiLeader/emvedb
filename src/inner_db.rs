@@ -256,10 +256,10 @@ impl InnerDb {
                 Metric::L2 => l2_score_and_distance(query_vector, vector),
                 Metric::Dot => dot_score_and_distance(query_vector, vector),
             };
-            if let Some(min_score) = options.min_score {
-                if score < min_score {
-                    continue;
-                }
+            if let Some(min_score) = options.min_score
+                && score < min_score
+            {
+                continue;
             }
             let item = SearchResultItem {
                 id,
@@ -280,7 +280,7 @@ impl InnerDb {
 impl Drop for InnerDb {
     fn drop(&mut self) {
         if self.open_mode == OpenMode::ReadWrite {
-            self.backend.sync().unwrap_or_else(|_| ());
+            self.backend.sync().unwrap_or(());
         }
     }
 }

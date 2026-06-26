@@ -15,6 +15,7 @@ where
         Self { storage }
     }
 
+    #[cfg(test)]
     pub fn into_inner(self) -> S {
         self.storage
     }
@@ -25,13 +26,6 @@ where
 
     pub fn read_at(&self, offset: u64, length: usize) -> crate::Result<Vec<u8>> {
         self.storage.read_at(offset, length)
-    }
-
-    pub fn write_header(&mut self, header: &Header) -> crate::Result<()> {
-        with_debug_log! {
-            self.storage
-                .write_header(header)
-        }
     }
 
     pub fn read_header(&self) -> crate::Result<Header> {
